@@ -208,9 +208,11 @@ include "RISCVSchedMempool.td"
 // RISC-V processors supported.
 //===----------------------------------------------------------------------===//
 
-def : ProcessorModel<"generic-rv32", MempoolModel, []>;
+def : ProcessorModel<"generic-rv32", NoSchedModel, []>;
 
 def : ProcessorModel<"generic-rv64", NoSchedModel, [Feature64Bit]>;
+
+def : ProcessorModel<"mempool-rv32", MempoolModel, []>;
 
 def : ProcessorModel<"rocket-rv32", Rocket32Model, []>;
 

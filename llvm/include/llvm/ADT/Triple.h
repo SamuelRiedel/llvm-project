@@ -151,6 +151,7 @@ public:
     Myriad,
     AMD,
     Mesa,
+    MemPool,
     SUSE,
     OpenEmbedded,
     LastVendorType = OpenEmbedded

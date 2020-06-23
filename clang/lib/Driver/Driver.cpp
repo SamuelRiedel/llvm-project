@@ -32,6 +32,7 @@
 #include "ToolChains/MSP430.h"
 #include "ToolChains/MSVC.h"
 #include "ToolChains/MinGW.h"
+#include "ToolChains/MemPool.h"
 #include "ToolChains/Minix.h"
 #include "ToolChains/MipsLinux.h"
 #include "ToolChains/Myriad.h"
@@ -5042,6 +5043,11 @@ const ToolChain &Driver::getToolChain(const ArgList &Args,
             std::make_unique<toolchains::MSP430ToolChain>(*this, Target, Args);
         break;
       case llvm::Triple::riscv32:
+        if (Target.getVendor() == llvm::Triple::MemPool)
+          TC = llvm::make_unique<toolchains::MemPoolToolChain>(*this, Target, Args);
+        else
+          TC = llvm::make_unique<toolchains::RISCVToolChain>(*this, Target, Args);
+        break;
       case llvm::Triple::riscv64:
         TC = std::make_unique<toolchains::RISCVToolChain>(*this, Target, Args);
         break;
