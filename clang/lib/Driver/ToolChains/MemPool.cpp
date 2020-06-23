@@ -47,6 +47,8 @@ void MemPoolToolChain::addClangTargetOptions(
     Action::OffloadKind) const {
   CC1Args.push_back("-nostdsysteminc");
   CC1Args.push_back("-fuse-init-array");
+  CC1Args.push_back("-mllvm");
+  CC1Args.push_back("-enable-misched");
 }
 
 void MemPoolToolChain::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
