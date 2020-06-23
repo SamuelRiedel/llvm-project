@@ -34,8 +34,12 @@ RISCVSubtarget &RISCVSubtarget::initializeSubtargetDependencies(
   // Determine default and user-specified characteristics
   bool Is64Bit = TT.isArch64Bit();
   std::string CPUName = std::string(CPU);
-  if (CPUName.empty())
-    CPUName = Is64Bit ? "generic-rv64" : "generic-rv32";
+  if (CPUName.empty()) {
+    if (TT.getVendorName().equals("mempool"))
+      CPUName = "mempool-rv32";
+    else
+      CPUName = Is64Bit ? "generic-rv64" : "generic-rv32";
+  }
   ParseSubtargetFeatures(CPUName, FS);
   if (Is64Bit) {
     XLenVT = MVT::i64;
