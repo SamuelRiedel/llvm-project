@@ -155,6 +155,13 @@ def HasStdExtV : Predicate<"Subtarget->hasStdExtV()">,
                            AssemblerPredicate<(all_of FeatureStdExtV),
                            "'V' (Vector Instructions)">;
 
+def FeatureUseMISched
+    : SubtargetFeature<"use-misched", "UseMISched", "true",
+                       "'use-misched' (Enable the Machine Scheduler pass)">;
+def UseMISched : Predicate<"Subtarget->useMISched()">,
+                           AssemblerPredicate<(all_of FeatureUseMISched),
+                           "'use-misched' (Enable the Machine Scheduler pass)">
+
 def Feature64Bit
     : SubtargetFeature<"64bit", "HasRV64", "true", "Implements RV64">;
 def IsRV64 : Predicate<"Subtarget->is64Bit()">,
@@ -213,7 +220,8 @@ def : ProcessorModel<"generic-rv32", NoSchedModel, []>;
 def : ProcessorModel<"generic-rv64", NoSchedModel, [Feature64Bit]>;
 
 def : ProcessorModel<"mempool-rv32", MempoolModel, [FeatureStdExtM,
-                                                    FeatureStdExtA]>;
+                                                    FeatureStdExtA,
+                                                    FeatureUseMISched]>;
 
 def : ProcessorModel<"rocket-rv32", Rocket32Model, []>;
 

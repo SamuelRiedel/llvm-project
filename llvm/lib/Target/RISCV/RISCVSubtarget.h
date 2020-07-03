@@ -56,6 +56,7 @@ class RISCVSubtarget : public RISCVGenSubtargetInfo {
   bool EnableLinkerRelax = false;
   bool EnableRVCHintInstrs = true;
   bool EnableSaveRestore = false;
+  bool UseMISched = false;
   unsigned XLen = 32;
   MVT XLenVT = MVT::i32;
   RISCVABI::ABI TargetABI = RISCVABI::ABI_Unknown;
@@ -94,7 +95,9 @@ public:
   const SelectionDAGTargetInfo *getSelectionDAGInfo() const override {
     return &TSInfo;
   }
-  bool enableMachineScheduler() const override { return true; }
+  bool enableMachineScheduler() const override {
+    return useMISched();
+  }
   bool hasStdExtM() const { return HasStdExtM; }
   bool hasStdExtA() const { return HasStdExtA; }
   bool hasStdExtF() const { return HasStdExtF; }
@@ -117,6 +120,7 @@ public:
   bool enableLinkerRelax() const { return EnableLinkerRelax; }
   bool enableRVCHintInstrs() const { return EnableRVCHintInstrs; }
   bool enableSaveRestore() const { return EnableSaveRestore; }
+  bool useMISched() const { return UseMISched; }
   MVT getXLenVT() const { return XLenVT; }
   unsigned getXLen() const { return XLen; }
   RISCVABI::ABI getTargetABI() const { return TargetABI; }
