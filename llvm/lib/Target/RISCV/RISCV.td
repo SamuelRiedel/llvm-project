@@ -160,7 +160,7 @@ def FeatureUseMISched
                        "'use-misched' (Enable the Machine Scheduler pass)">;
 def UseMISched : Predicate<"Subtarget->useMISched()">,
                            AssemblerPredicate<(all_of FeatureUseMISched),
-                           "'use-misched' (Enable the Machine Scheduler pass)">
+                           "'use-misched' (Enable the Machine Scheduler pass)">;
 
 def Feature64Bit
     : SubtargetFeature<"64bit", "HasRV64", "true", "Implements RV64">;

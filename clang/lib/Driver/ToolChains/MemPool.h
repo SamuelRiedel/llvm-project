@@ -9,8 +9,6 @@
 #ifndef LLVM_CLANG_LIB_DRIVER_TOOLCHAINS_MEMPOOL_H
 #define LLVM_CLANG_LIB_DRIVER_TOOLCHAINS_MEMPOOL_H
 
-#include <string>
-
 #include "Gnu.h"
 #include "clang/Driver/ToolChain.h"
 
@@ -27,41 +25,35 @@ public:
   void addClangTargetOptions(const llvm::opt::ArgList &DriverArgs,
                              llvm::opt::ArgStringList &CC1Args,
                              Action::OffloadKind) const override;
+  RuntimeLibType GetDefaultRuntimeLibType() const override;
+  UnwindLibType GetUnwindLibType(const llvm::opt::ArgList &Args) const override;
   void
   AddClangSystemIncludeArgs(const llvm::opt::ArgList &DriverArgs,
                             llvm::opt::ArgStringList &CC1Args) const override;
   void
   addLibStdCxxIncludePaths(const llvm::opt::ArgList &DriverArgs,
-                           llvm::opt::ArgStringList &CC1Args) const override{};
-
-  virtual llvm::opt::DerivedArgList *
-  TranslateArgs(const llvm::opt::DerivedArgList &Args, StringRef BoundArch,
-                Action::OffloadKind DeviceOffloadKind) const override;
+                           llvm::opt::ArgStringList &CC1Args) const override;
 
 protected:
   Tool *buildLinker() const override;
 
 private:
-  std::string computeSysRoot() const;
-  std::string MemPoolSdkDir;
+  std::string computeSysRoot() const override;
 };
 
 } // end namespace toolchains
 
 namespace tools {
 namespace MemPool {
-class LLVM_LIBRARY_VISIBILITY Linker : public GnuTool {
+class LLVM_LIBRARY_VISIBILITY Linker : public Tool {
 public:
-  Linker(const ToolChain &TC) : GnuTool("RISCV::Linker", "ld", TC) {}
+  Linker(const ToolChain &TC) : Tool("MemPool::Linker", "ld", TC) {}
   bool hasIntegratedCPP() const override { return false; }
   bool isLinkJob() const override { return true; }
   void ConstructJob(Compilation &C, const JobAction &JA,
                     const InputInfo &Output, const InputInfoList &Inputs,
                     const llvm::opt::ArgList &TCArgs,
                     const char *LinkingOutput) const override;
-
-private:
-  std::string MemPoolSdkDir;
 };
 } // end namespace MemPool
 } // end namespace tools

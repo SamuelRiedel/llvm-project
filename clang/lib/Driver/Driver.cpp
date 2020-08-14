@@ -5044,9 +5044,9 @@ const ToolChain &Driver::getToolChain(const ArgList &Args,
         break;
       case llvm::Triple::riscv32:
         if (Target.getVendor() == llvm::Triple::MemPool)
-          TC = llvm::make_unique<toolchains::MemPoolToolChain>(*this, Target, Args);
+          TC = std::make_unique<toolchains::MemPoolToolChain>(*this, Target, Args);
         else
-          TC = llvm::make_unique<toolchains::RISCVToolChain>(*this, Target, Args);
+          TC = std::make_unique<toolchains::RISCVToolChain>(*this, Target, Args);
         break;
       case llvm::Triple::riscv64:
         TC = std::make_unique<toolchains::RISCVToolChain>(*this, Target, Args);

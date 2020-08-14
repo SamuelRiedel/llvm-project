@@ -24,22 +24,54 @@ using namespace clang::driver::tools;
 using namespace clang;
 using namespace llvm::opt;
 
+static void addMultilibsFilePaths(const Driver &D, const MultilibSet &Multilibs,
+                                  const Multilib &Multilib,
+                                  StringRef InstallPath,
+                                  ToolChain::path_list &Paths) {
+  if (const auto &PathsCallback = Multilibs.filePathsCallback())
+    for (const auto &Path : PathsCallback(Multilib))
+      addPathIfExists(D, InstallPath + Path, Paths);
+}
+
 /// MemPool Toolchain
 // methods are adapted from RISCV.cpp
 MemPoolToolChain::MemPoolToolChain(const Driver &D, const llvm::Triple &Triple,
                                    const ArgList &Args)
     : Generic_ELF(D, Triple, Args) {
   GCCInstallation.init(Triple, Args);
-  getFilePaths().push_back(computeSysRoot() + "/lib");
   if (GCCInstallation.isValid()) {
+    Multilibs = GCCInstallation.getMultilibs();
+    SelectedMultilib = GCCInstallation.getMultilib();
+    path_list &Paths = getFilePaths();
+    // Add toolchain/multilib specific file paths.
+    addMultilibsFilePaths(D, Multilibs, SelectedMultilib,
+                          GCCInstallation.getInstallPath(), Paths);
     getFilePaths().push_back(GCCInstallation.getInstallPath().str());
-    getProgramPaths().push_back(
-        (GCCInstallation.getParentLibPath() + "/../bin").str());
+    ToolChain::path_list &PPaths = getProgramPaths();
+    // Multilib cross-compiler GCC installations put ld in a triple-prefixed
+    // directory off of the parent of the GCC installation.
+    PPaths.push_back(Twine(GCCInstallation.getParentLibPath() + "/../" +
+                           GCCInstallation.getTriple().str() + "/bin")
+                         .str());
+    PPaths.push_back((GCCInstallation.getParentLibPath() + "/../bin").str());
+  } else {
+    getProgramPaths().push_back(D.Dir);
   }
+  getFilePaths().push_back(computeSysRoot() + "/lib");
 }
 
 Tool *MemPoolToolChain::buildLinker() const {
   return new tools::MemPool::Linker(*this);
+}
+
+ToolChain::RuntimeLibType MemPoolToolChain::GetDefaultRuntimeLibType() const {
+  return GCCInstallation.isValid() ? ToolChain::RLT_Libgcc
+                                   : ToolChain::RLT_CompilerRT;
+}
+
+ToolChain::UnwindLibType
+MemPoolToolChain::GetUnwindLibType(const llvm::opt::ArgList &Args) const {
+  return ToolChain::UNW_None;
 }
 
 void MemPoolToolChain::addClangTargetOptions(
@@ -63,48 +95,37 @@ void MemPoolToolChain::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
   }
 }
 
-// void MemPoolToolChain::addLibStdCxxIncludePaths(
-//     const llvm::opt::ArgList &DriverArgs,
-//     llvm::opt::ArgStringList &CC1Args) const {
-//   const GCCVersion &Version = GCCInstallation.getVersion();
-//   StringRef TripleStr = GCCInstallation.getTriple().str();
-//   const Multilib &Multilib = GCCInstallation.getMultilib();
-//   addLibStdCXXIncludePaths(computeSysRoot() + "/include/c++/" + Version.Text,
-//                            "", TripleStr, "", "", Multilib.includeSuffix(),
-//                            DriverArgs, CC1Args);
-// }
+void MemPoolToolChain::addLibStdCxxIncludePaths(
+    const llvm::opt::ArgList &DriverArgs,
+    llvm::opt::ArgStringList &CC1Args) const {
+  const GCCVersion &Version = GCCInstallation.getVersion();
+  StringRef TripleStr = GCCInstallation.getTriple().str();
+  const Multilib &Multilib = GCCInstallation.getMultilib();
+  addLibStdCXXIncludePaths(computeSysRoot() + "/include/c++/" + Version.Text,
+                           "", TripleStr, "", "", Multilib.includeSuffix(),
+                           DriverArgs, CC1Args);
+}
 
 std::string MemPoolToolChain::computeSysRoot() const {
   if (!getDriver().SysRoot.empty())
     return getDriver().SysRoot;
 
-  if (!GCCInstallation.isValid())
-    return std::string();
-
-  StringRef LibDir = GCCInstallation.getParentLibPath();
-  StringRef TripleStr = GCCInstallation.getTriple().str();
-  std::string SysRootDir = LibDir.str() + "/../" + TripleStr.str();
+  SmallString<128> SysRootDir;
+  if (GCCInstallation.isValid()) {
+    StringRef LibDir = GCCInstallation.getParentLibPath();
+    StringRef TripleStr = GCCInstallation.getTriple().str();
+    llvm::sys::path::append(SysRootDir, LibDir, "..", TripleStr);
+  } else {
+    // Use the triple as provided to the driver. Unlike the parsed triple
+    // this has not been normalized to always contain every field.
+    llvm::sys::path::append(SysRootDir, getDriver().Dir, "..",
+                            getDriver().getTargetTriple());
+  }
 
   if (!llvm::sys::fs::exists(SysRootDir))
     return std::string();
 
-  return SysRootDir;
-}
-
-// MemPool::Linker::Linker(const ToolChain &TC) : GnuTool("MemPool::Linker",
-// "ld", TC) {
-//   llvm::Optional<std::string> MemPoolSdkDir =
-//       llvm::sys::Process::GetEnv("MEMPOOL_SDK_DIR");
-//   if (MemPoolSdkDir.hasValue()) {
-//     this->MemPoolSdkDir = MemPoolSdkDir.getValue();
-//   }
-// }
-
-llvm::opt::DerivedArgList *
-MemPoolToolChain::TranslateArgs(const llvm::opt::DerivedArgList &Args,
-                                StringRef BoundArch,
-                                Action::OffloadKind DeviceOffloadKind) const {
-  return nullptr;
+  return std::string(SysRootDir.str());
 }
 
 void MemPool::Linker::ConstructJob(Compilation &C, const JobAction &JA,
@@ -119,14 +140,35 @@ void MemPool::Linker::ConstructJob(Compilation &C, const JobAction &JA,
   if (!D.SysRoot.empty())
     CmdArgs.push_back(Args.MakeArgString("--sysroot=" + D.SysRoot));
 
-  std::string Linker = getToolChain().GetProgramPath(getShortName());
+  bool IsRV64 = ToolChain.getArch() == llvm::Triple::riscv64;
+  CmdArgs.push_back("-m");
+  if (IsRV64) {
+    CmdArgs.push_back("elf64lriscv");
+  } else {
+    CmdArgs.push_back("elf32lriscv");
+  }
+
+  std::string Linker = getToolChain().GetLinkerPath();
 
   bool WantCRTs =
       !Args.hasArg(options::OPT_nostdlib, options::OPT_nostartfiles);
 
+  const char *crtbegin, *crtend;
+  auto RuntimeLib = ToolChain.GetRuntimeLibType(Args);
+  if (RuntimeLib == ToolChain::RLT_Libgcc) {
+    crtbegin = "crtbegin.o";
+    crtend = "crtend.o";
+  } else {
+    assert(RuntimeLib == ToolChain::RLT_CompilerRT);
+    crtbegin = ToolChain.getCompilerRTArgString(Args, "crtbegin",
+                                                ToolChain::FT_Object);
+    crtend =
+        ToolChain.getCompilerRTArgString(Args, "crtend", ToolChain::FT_Object);
+  }
+
   if (WantCRTs) {
     CmdArgs.push_back(Args.MakeArgString(ToolChain.GetFilePath("crt0.o")));
-    CmdArgs.push_back(Args.MakeArgString(ToolChain.GetFilePath("crtbegin.o")));
+    CmdArgs.push_back(Args.MakeArgString(ToolChain.GetFilePath(crtbegin)));
   }
 
   Args.AddAllArgs(CmdArgs, options::OPT_L);
@@ -147,113 +189,16 @@ void MemPool::Linker::ConstructJob(Compilation &C, const JobAction &JA,
     CmdArgs.push_back("-lc");
     CmdArgs.push_back("-lgloss");
     CmdArgs.push_back("--end-group");
-    CmdArgs.push_back("-lgcc");
+    AddRunTimeLibs(ToolChain, ToolChain.getDriver(), CmdArgs, Args);
   }
 
   if (WantCRTs)
-    CmdArgs.push_back(Args.MakeArgString(ToolChain.GetFilePath("crtend.o")));
+    CmdArgs.push_back(Args.MakeArgString(ToolChain.GetFilePath(crtend)));
 
   CmdArgs.push_back("-o");
   CmdArgs.push_back(Output.getFilename());
-  C.addCommand(llvm::make_unique<Command>(JA, *this, Args.MakeArgString(Linker),
-                                          CmdArgs, Inputs));
+  C.addCommand(
+      std::make_unique<Command>(JA, *this, ResponseFileSupport::AtFileCurCP(),
+                                Args.MakeArgString(Linker), CmdArgs, Inputs));
 }
-
-// void MemPool::Linker::ConstructJob(Compilation &C, const JobAction &JA,
-//                                 const InputInfo &Output,
-//                                 const InputInfoList &Inputs,
-//                                 const ArgList &Args,
-//                                 const char *LinkingOutput) const {
-//   const ToolChain &ToolChain = getToolChain();
-//   const Driver &D = ToolChain.getDriver();
-//   ArgStringList CmdArgs;
-//   // CmdArgs.push_back("-march=elf32lriscv");
-
-//   if (!D.SysRoot.empty())
-//     CmdArgs.push_back(Args.MakeArgString("--sysroot=" + D.SysRoot));
-
-//   std::string Linker = getToolChain().GetProgramPath(getShortName());
-
-//   SmallString<128> RtConf(this->MemPoolSdkDir);
-//   llvm::sys::path::append(
-//       RtConf, "pulp-sdk/pkg/sdk/dev/install/lib/mempool-z-7045/rt/crt0.o");
-//   CmdArgs.push_back(Args.MakeArgString(RtConf));
-
-//   SmallString<128> Crt0(this->MemPoolSdkDir);
-//   llvm::sys::path::append(
-//       Crt0, "pulp-sdk/pkg/sdk/dev/install/mempool/mempool-z-7045/rt_conf.o");
-//   CmdArgs.push_back(Args.MakeArgString(Crt0));
-
-//   CmdArgs.push_back("-nostdlib");
-//   CmdArgs.push_back("-nostartfiles");
-//   CmdArgs.push_back("--gc-sections");
-
-//   Args.AddAllArgs(CmdArgs, options::OPT_L);
-//   ToolChain.AddFilePathLibArgs(Args, CmdArgs);
-//   Args.AddAllArgs(CmdArgs,
-//                   {options::OPT_T_Group, options::OPT_e, options::OPT_s,
-//                    options::OPT_t, options::OPT_Z_Flag, options::OPT_r});
-
-//   AddLinkerInputs(ToolChain, Inputs, Args, CmdArgs, JA);
-
-//   SmallString<128> ArgStr("-T");
-//   ArgStr.append(this->MemPoolSdkDir);
-//   llvm::sys::path::append(
-//       ArgStr,
-//       "pulp-sdk/pkg/sdk/dev/install/mempool/mempool-z-7045/omptarget.ld");
-//   CmdArgs.push_back(Args.MakeArgString(ArgStr));
-
-//   ArgStr.clear();
-//   ArgStr.append("-T");
-//   ArgStr.append(this->MemPoolSdkDir);
-//   llvm::sys::path::append(
-//       ArgStr,
-//       "pulp-sdk/pkg/sdk/dev/install/mempool/mempool-z-7045/test_config.ld");
-//   CmdArgs.push_back(Args.MakeArgString(ArgStr));
-
-//   ArgStr.clear();
-//   ArgStr.append("-L");
-//   ArgStr.append(this->MemPoolSdkDir);
-//   llvm::sys::path::append(ArgStr,
-//                           "pulp-sdk/pkg/sdk/dev/install/lib/mempool-z-7045");
-//   CmdArgs.push_back(Args.MakeArgString(ArgStr));
-
-//   ArgStr.clear();
-//   ArgStr.append("-L");
-//   ArgStr.append(this->MemPoolSdkDir);
-//   llvm::sys::path::append(
-//       ArgStr,
-//       "mempool-gcc-toolchain/install/lib/gcc/riscv32-unknown-elf/7.1.1");
-//   CmdArgs.push_back(Args.MakeArgString(ArgStr));
-
-//   ArgStr.clear();
-//   ArgStr.append("-L");
-//   ArgStr.append(this->MemPoolSdkDir);
-//   llvm::sys::path::append(ArgStr,
-//                           "mempool-gcc-toolchain/install/riscv32-unknown-elf/lib");
-//   CmdArgs.push_back(Args.MakeArgString(ArgStr));
-
-//   // Currently no support for C++, otherwise add C++ includes and libs if
-//   // compiling C++.
-
-//   CmdArgs.push_back("-lomptarget-pulp");
-//   CmdArgs.push_back("-lrt");
-//   CmdArgs.push_back("-lrtio");
-//   CmdArgs.push_back("-lrt");
-//   CmdArgs.push_back("-lmempool-target");
-//   CmdArgs.push_back("-lvmm");
-//   CmdArgs.push_back("-larchi_host");
-//   CmdArgs.push_back("-lrt");
-//   CmdArgs.push_back("-larchi_host");
-//   CmdArgs.push_back("-lgcc");
-//   CmdArgs.push_back("-lbench");
-//   CmdArgs.push_back("-lm");
-//   CmdArgs.push_back("-lpremnotify");
-
-//   CmdArgs.push_back("-o");
-//   CmdArgs.push_back(Output.getFilename());
-
-//   C.addCommand(llvm::make_unique<Command>(JA, *this,
-//   Args.MakeArgString(Linker),
-//                                           CmdArgs, Inputs));
-// }
+// MemPool tools end.
