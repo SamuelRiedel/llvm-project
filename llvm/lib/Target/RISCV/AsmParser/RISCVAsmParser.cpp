@@ -4711,13 +4711,23 @@ void RISCVAsmParser::emitCapLoadLocalCap(MCInst &Inst, SMLoc IDLoc,
   // The capability load local capability pseudo-instruction "cllc" is used in
   // PC-relative addressing of local symbols:
   //   cllc rdest, symbol
-  // expands to
+  // expands to (CHERIoT ABI):
+  //   TmpLabel: AUIPCC cdest, %cheriot_compartment_hi(symbol)
+  //             CINCOFFSET cdest, cdest, %pcrel_lo(TmpLabel)
+  // or (other CHERI ABIs):
   //   TmpLabel: AUIPCC cdest, %pcrel_hi(symbol)
   //             CINCOFFSET cdest, cdest, %pcrel_lo(TmpLabel)
+  //
+  // CHERIoT AUIPCC shifts imm20 by 11 bits (not 12 as AUIPC does), so the
+  // linker must use the CHERIoT-specific relocation to encode the correct
+  // imm20 value.
   MCOperand DestReg = Inst.getOperand(0);
   const MCExpr *Symbol = Inst.getOperand(1).getExpr();
-  emitAuipccInstPair(DestReg, DestReg, Symbol,
-                     ELF::R_RISCV_PCREL_HI20,
+  RISCV::Specifier SpecHi =
+      (ABI == RISCVABI::ABI_CHERIOT || ABI == RISCVABI::ABI_CHERIOT_BAREMETAL)
+          ? RISCV::S_CHERIOT_COMPARTMENT_CODE_HI
+          : ELF::R_RISCV_PCREL_HI20;
+  emitAuipccInstPair(DestReg, DestReg, Symbol, SpecHi,
                      RISCV::CIncOffsetImm, IDLoc, Out);
 }
 
