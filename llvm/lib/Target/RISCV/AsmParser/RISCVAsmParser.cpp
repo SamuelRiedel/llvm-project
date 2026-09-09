@@ -4736,14 +4736,27 @@ void RISCVAsmParser::emitCapLoadGlobalCap(MCInst &Inst, SMLoc IDLoc,
   // The capability load global capability pseudo-instruction "clgc" is used in
   // GOT-indirect addressing of global symbols in the PC-relative ABI:
   //   clgc rdest, symbol
-  // expands to
+  // expands to (CHERIoT ABI):
+  //   TmpLabel: AUIPCC cdest, %cheriot_compartment_hi(symbol)
+  //             CLC cdest, %pcrel_lo(TmpLabel)(cdest)
+  // or (other CHERI ABIs):
   //   TmpLabel: AUIPCC cdest, %got_pcrel_hi(symbol)
   //             CLC cdest, %pcrel_lo(TmpLabel)(cdest)
+  //
+  // CHERIoT has no traditional GOT; capability imports are stored in the
+  // .compartment_imports table and accessed PCC-relative via AUIPCC.
+  // AUIPCC shifts imm20 by 11 bits (not 12), so use the CHERIoT-specific
+  // relocation rather than R_RISCV_GOT_HI20 (which the linker handles with
+  // a 12-bit shift).
   MCOperand DestReg = Inst.getOperand(0);
   const MCExpr *Symbol = Inst.getOperand(1).getExpr();
   unsigned SecondOpcode = isRV64() ? RISCV::CLC_128 : RISCV::CLC_64;
-  emitAuipccInstPair(DestReg, DestReg, Symbol, ELF::R_RISCV_GOT_HI20,
-                     SecondOpcode, IDLoc, Out);
+  RISCV::Specifier SpecHi =
+      (ABI == RISCVABI::ABI_CHERIOT || ABI == RISCVABI::ABI_CHERIOT_BAREMETAL)
+          ? RISCV::S_CHERIOT_COMPARTMENT_CODE_HI
+          : ELF::R_RISCV_GOT_HI20;
+  emitAuipccInstPair(DestReg, DestReg, Symbol, SpecHi, SecondOpcode, IDLoc,
+                     Out);
 }
 
 void RISCVAsmParser::emitCapLoadTLSIEAddress(MCInst &Inst, SMLoc IDLoc,
