@@ -4696,9 +4696,19 @@ void RISCVAsmParser::emitAuipccInstPair(MCOperand DestReg, MCOperand TmpReg,
   emitToStreamer(
       Out, MCInstBuilder(RISCV::AUIPCC).addOperand(TmpReg).addExpr(SymbolHi));
 
+  // CHERIoT AUIPCC/AUICGP use S_CHERIOT_COMPARTMENT_LO_I for the lo half so
+  // that lld's rewriteCheriotLowRelocs can identify the pair and convert it
+  // to COMPARTMENT_PCCREL_LO_I. Using S_PCREL_LO here would generate
+  // R_RISCV_PCREL_LO12_I, which the linker cannot pair with the CHERIoT hi
+  // relocation, resulting in "could not find corresponding %pcrel_hi".
+  RISCV::Specifier VKLo =
+      (VKHi == RISCV::S_CHERIOT_COMPARTMENT_CODE_HI ||
+       VKHi == RISCV::S_CHERIOT_COMPARTMENT_DATA_HI)
+          ? RISCV::S_CHERIOT_COMPARTMENT_LO_I
+          : RISCV::S_PCREL_LO;
   const MCExpr *RefToLinkTmpLabel =
       MCSpecifierExpr::create(MCSymbolRefExpr::create(TmpLabel, Ctx),
-                          RISCV::S_PCREL_LO, Ctx);
+                          VKLo, Ctx);
 
   emitToStreamer(Out, MCInstBuilder(SecondOpcode)
                           .addOperand(DestReg)
